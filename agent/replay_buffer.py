@@ -34,10 +34,15 @@ class ReplayBuffer:
         action,
         reward,
         next_state,
-        done
+        done,
+        next_valid_actions
     ):
         """
         Store one experience.
+
+        Stores:
+            (state, action, reward, next_state, done,
+            next_valid_actions)
         """
 
         self.buffer.append(
@@ -46,7 +51,8 @@ class ReplayBuffer:
                 int(action),
                 float(reward),
                 np.asarray(next_state, dtype=np.float32),
-                bool(done)
+                bool(done),
+                list(next_valid_actions)
             )
         )
 
@@ -65,6 +71,7 @@ class ReplayBuffer:
         rewards
         next_states
         dones
+        next_valid_actions
         """
 
         if batch_size > len(self.buffer):
@@ -78,16 +85,18 @@ class ReplayBuffer:
             batch_size
         )
 
-        states, actions, rewards, next_states, dones = zip(
+        states, actions, rewards, next_states, dones, next_valid_actions = zip(
             *batch
         )
+        
 
         return (
             np.asarray(states, dtype=np.float32),
             np.asarray(actions, dtype=np.int64),
             np.asarray(rewards, dtype=np.float32),
             np.asarray(next_states, dtype=np.float32),
-            np.asarray(dones, dtype=np.float32)
+            np.asarray(dones, dtype=np.float32),
+            next_valid_actions
         )
 
     # =========================================================

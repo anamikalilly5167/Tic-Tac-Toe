@@ -225,16 +225,10 @@ class UltimateTTTEnv:
         # Calculate reward
         # -----------------------------------------------------
 
-        if game_result == self.X:
+        if game_result in (self.X, self.O):
 
-            # X won
+            # The player who made this move won.
             reward = self.WIN_REWARD
-            self.done = True
-
-        elif game_result == self.O:
-
-            # O won
-            reward = self.LOSS_REWARD
             self.done = True
 
         elif game_result == self.DRAW:

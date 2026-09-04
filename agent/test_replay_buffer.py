@@ -1,3 +1,4 @@
+
 import numpy as np
 
 from replay_buffer import ReplayBuffer
@@ -19,12 +20,16 @@ def test_push():
     state = np.zeros(100, dtype=np.float32)
     next_state = np.ones(100, dtype=np.float32)
 
+    action = 10
+    reward = 0.5
+
     buffer.push(
         state=state,
-        action=23,
-        reward=0.0,
+        action=action,
+        reward=reward,
         next_state=next_state,
-        done=False
+        done=False,
+        next_valid_actions=[0, 1, 2, 3]
     )
 
     assert len(buffer) == 1
@@ -56,16 +61,29 @@ def test_sample():
             action=i % 81,
             reward=0.0,
             next_state=next_state,
-            done=False
+            done=False,
+            next_valid_actions=[0, 1, 2, 3]
         )
 
-    states, actions, rewards, next_states, dones = buffer.sample(8)
+    (
+        states,
+        actions,
+        rewards,
+        next_states,
+        dones,
+        next_valid_actions
+    ) = buffer.sample(8)
 
     assert states.shape == (8, 100)
     assert actions.shape == (8,)
     assert rewards.shape == (8,)
     assert next_states.shape == (8, 100)
     assert dones.shape == (8,)
+
+    assert len(next_valid_actions) == 8
+
+    for valid_actions in next_valid_actions:
+        assert valid_actions == [0, 1, 2, 3]
 
     print("PASS: Sample")
 
@@ -91,7 +109,8 @@ def test_capacity():
             i % 81,
             0.0,
             next_state,
-            False
+            False,
+            [0, 1, 2]
         )
 
     # Buffer should never exceed capacity.
@@ -111,7 +130,8 @@ def test_clear():
         0,
         0.0,
         state,
-        False
+        False,
+        [0, 1, 2]
     )
 
     assert len(buffer) == 1
@@ -135,10 +155,18 @@ def test_terminal_experience():
         50,
         1.0,
         next_state,
-        True
+        True,
+        []
     )
 
-    states, actions, rewards, next_states, dones = buffer.sample(1)
+    (
+        states,
+        actions,
+        rewards,
+        next_states,
+        dones,
+        next_valid_actions
+    ) = buffer.sample(1)
 
     assert states.shape == (1, 100)
 
@@ -147,6 +175,8 @@ def test_terminal_experience():
     assert rewards[0] == 1.0
 
     assert dones[0] == 1.0
+
+    assert next_valid_actions[0] == []
 
     print("PASS: Terminal experience")
 

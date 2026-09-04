@@ -138,12 +138,16 @@ def test_remember():
     state = make_state(0.0)
     next_state = make_state(1.0)
 
+    action = 10
+    reward = 0.5
+
     agent.remember(
         state,
-        10,
-        0.0,
+        action,
+        reward,
         next_state,
-        False
+        False,
+        [0, 1, 2, 3]
     )
 
     assert len(agent.replay_buffer) == 1
@@ -178,12 +182,15 @@ def test_learning():
 
         done = False
 
+        next_valid_actions = [0, 1, 2, 3, 4]
+
         agent.remember(
             state,
             action,
             reward,
             next_state,
-            done
+            done,
+            next_valid_actions
         )
 
     loss = agent.learn()

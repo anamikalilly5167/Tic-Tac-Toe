@@ -216,7 +216,8 @@ class DDQNAgent:
         action,
         reward,
         next_state,
-        done
+        done,
+        next_valid_actions
     ):
         """
         Store experience in replay buffer.
@@ -227,7 +228,8 @@ class DDQNAgent:
             action,
             reward,
             next_state,
-            done
+            done,
+            next_valid_actions
         )
 
     # =========================================================
@@ -257,7 +259,8 @@ class DDQNAgent:
             actions,
             rewards,
             next_states,
-            dones
+            dones,
+            next_valid_actions
         ) = self.replay_buffer.sample(
             self.batch_size
         )
@@ -320,8 +323,31 @@ class DDQNAgent:
                 next_states
             )
 
+            # Mask illegal actions for every state in the batch.
+            next_action_mask = torch.full(
+                (self.batch_size, self.action_size),
+                float("-inf"),
+                device=self.device
+            )
+
+            for i, valid_actions in enumerate(next_valid_actions):
+
+                if len(valid_actions) > 0:
+
+                    valid_indices = torch.tensor(
+                        valid_actions,
+                        dtype=torch.long,
+                        device=self.device
+                    )
+
+                    next_action_mask[i, valid_indices] = 0.0
+
+            masked_next_online_q_values = (
+                next_online_q_values + next_action_mask
+            )
+
             next_actions = torch.argmax(
-                next_online_q_values,
+                masked_next_online_q_values,
                 dim=1
             )
 
