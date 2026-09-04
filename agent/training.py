@@ -18,6 +18,7 @@ ENVIRONMENT_PATH = os.path.join(
 if ENVIRONMENT_PATH not in sys.path:
     sys.path.insert(0, ENVIRONMENT_PATH)
 
+
 # ============================================================
 # IMPORTS
 # ============================================================
@@ -32,7 +33,6 @@ from ddqn_agent import DDQNAgent
 
 X = 1
 O = -1
-DRAW = 2
 
 
 # ============================================================
@@ -47,22 +47,17 @@ def play_one_game(
     """
     Play one complete Ultimate Tic-Tac-Toe game.
 
-    agent_x plays X.
-    agent_o plays O.
+    Agent X controls X.
+    Agent O controls O.
 
-    Each agent stores a transition from one of its
+    Each agent stores transitions from one of its
     decision points to its next decision point.
-
-    Returns
-    -------
-    dict
-        Game result and training statistics.
     """
 
     env = UltimateTTTEnv()
 
     # --------------------------------------------------------
-    # RESET ENVIRONMENT
+    # RESET
     # --------------------------------------------------------
 
     state = env.reset()
@@ -77,13 +72,6 @@ def play_one_game(
 
     # --------------------------------------------------------
     # Pending transitions
-    #
-    # Each pending transition contains:
-    #
-    #     (state_before_action, action)
-    #
-    # We wait until the SAME player gets another turn.
-    # At that point, the current state becomes next_state.
     # --------------------------------------------------------
 
     pending_x = None
@@ -102,7 +90,7 @@ def play_one_game(
         current_player = env.get_current_player()
 
         # ----------------------------------------------------
-        # Get legal actions
+        # Legal actions
         # ----------------------------------------------------
 
         valid_actions = env.get_valid_moves()
@@ -116,7 +104,7 @@ def play_one_game(
             break
 
         # ----------------------------------------------------
-        # Select the correct agent
+        # Select agent
         # ----------------------------------------------------
 
         if current_player == env.X:
@@ -133,13 +121,6 @@ def play_one_game(
         # FINALIZE PREVIOUS TRANSITION
         # ====================================================
 
-        # If this player has already played before, then
-        # the current state is the state reached after the
-        # opponent's move.
-        #
-        # Therefore this is the correct next_state for the
-        # player's previous decision.
-
         if pending is not None:
 
             old_state, old_action = pending
@@ -153,9 +134,7 @@ def play_one_game(
                 list(valid_actions)
             )
 
-            # ------------------------------------------------
             # Clear pending transition
-            # ------------------------------------------------
 
             if current_player == env.X:
 
@@ -166,7 +145,7 @@ def play_one_game(
                 pending_o = None
 
             # ------------------------------------------------
-            # Learn from the newly stored experience
+            # Learn
             # ------------------------------------------------
 
             loss = agent.learn()
@@ -204,7 +183,7 @@ def play_one_game(
         last_info = info
 
         # ====================================================
-        # GAME HAS ENDED
+        # GAME ENDED
         # ====================================================
 
         if done:
@@ -217,39 +196,26 @@ def play_one_game(
 
             if winner == player_who_moved:
 
-                # The player who made the final winning move
-                # receives +1.
-
                 current_reward = 1.0
-
-                # Opponent loses.
-
                 opponent_reward = -1.0
 
             elif winner in (env.X, env.O):
-
-                # Safety fallback.
 
                 current_reward = -1.0
                 opponent_reward = 1.0
 
             elif info.get("illegal_move", False):
 
-                # Illegal move = loss for the player who
-                # attempted it.
-
                 current_reward = -1.0
                 opponent_reward = 1.0
 
             else:
 
-                # Draw.
-
                 current_reward = 0.0
                 opponent_reward = 0.0
 
             # =================================================
-            # STORE CURRENT PLAYER'S FINAL TRANSITION
+            # CURRENT PLAYER FINAL TRANSITION
             # =================================================
 
             agent.remember(
@@ -262,12 +228,10 @@ def play_one_game(
             )
 
             # =================================================
-            # STORE OPPONENT'S PENDING TRANSITION
+            # OPPONENT FINAL TRANSITION
             # =================================================
 
             if player_who_moved == env.X:
-
-                # O is the opponent.
 
                 if pending_o is not None:
 
@@ -285,8 +249,6 @@ def play_one_game(
                     pending_o = None
 
             else:
-
-                # X is the opponent.
 
                 if pending_x is not None:
 
@@ -344,14 +306,6 @@ def play_one_game(
         # ====================================================
 
         else:
-
-            # Store this player's decision as pending.
-            #
-            # We DO NOT store next_state yet because it is
-            # currently the opponent's turn.
-            #
-            # When this player gets another turn, that state
-            # will become the correct next_state.
 
             if player_who_moved == env.X:
 
@@ -422,7 +376,7 @@ def play_one_game(
     )
 
     # ========================================================
-    # RETURN RESULTS
+    # RETURN
     # ========================================================
 
     return {
@@ -452,41 +406,121 @@ def play_one_game(
 
 
 # ============================================================
-# TRAIN TWO AGENTS USING SELF-PLAY
+# CONTINUE TRAINING FROM EXISTING MODELS
 # ============================================================
 
-def train_agents(
-    num_games=1000,
-    save_every=25
+def continue_training(
+    total_games=1000,
+    previous_games=100,
+    save_every=100
 ):
     """
-    Train X and O agents through self-play.
+    Continue training from the previously saved models.
 
-    Parameters
-    ----------
-    num_games : int
-        Number of games to play.
+    Example:
+        previous_games = 100
+        total_games = 1000
 
-    save_every : int
-        Save a checkpoint after this many games.
+    This will play 900 additional games.
     """
 
+    additional_games = (
+        total_games - previous_games
+    )
+
+    if additional_games <= 0:
+
+        print(
+            "ERROR: total_games must be greater "
+            "than previous_games."
+        )
+
+        return None, None
+
+    # ========================================================
+    # MODEL PATHS
+    # ========================================================
+
+    model_dir = os.path.join(
+        PROJECT_ROOT,
+        "models"
+    )
+
+    model_x_path = os.path.join(
+        model_dir,
+        "agent_x_final.pth"
+    )
+
+    model_o_path = os.path.join(
+        model_dir,
+        "agent_o_final.pth"
+    )
+
+    # ========================================================
+    # CHECK MODELS
+    # ========================================================
+
+    if not os.path.exists(model_x_path):
+
+        print()
+        print(
+            "ERROR: Agent X model not found:"
+        )
+
+        print(
+            model_x_path
+        )
+
+        return None, None
+
+    if not os.path.exists(model_o_path):
+
+        print()
+        print(
+            "ERROR: Agent O model not found:"
+        )
+
+        print(
+            model_o_path
+        )
+
+        return None, None
+
+    # ========================================================
+    # HEADER
+    # ========================================================
+
     print()
     print("=" * 60)
-    print(" STARTING DDQN SELF-PLAY TRAINING")
+    print(" CONTINUING DDQN TRAINING")
     print("=" * 60)
 
     print()
+
     print(
-        f"Number of training games: {num_games}"
+        f"Previous games completed : "
+        f"{previous_games}"
+    )
+
+    print(
+        f"Target total games      : "
+        f"{total_games}"
+    )
+
+    print(
+        f"Additional games        : "
+        f"{additional_games}"
+    )
+
+    print()
+
+    print(
+        "Loading existing models..."
     )
 
     # ========================================================
     # CREATE AGENTS
     # ========================================================
-
-    print()
-    print("Creating Agent X...")
 
     agent_x = DDQNAgent(
         state_size=100,
@@ -494,15 +528,55 @@ def train_agents(
         batch_size=32
     )
 
-    print("Creating Agent O...")
-
     agent_o = DDQNAgent(
         state_size=100,
         action_size=81,
         batch_size=32
     )
 
+    # ========================================================
+    # LOAD EXISTING MODELS
+    # ========================================================
+
+    try:
+
+        agent_x.load(
+            model_x_path
+        )
+
+        agent_o.load(
+            model_o_path
+        )
+
+    except Exception as error:
+
+        print()
+        print(
+            "ERROR while loading models:"
+        )
+
+        print(
+            error
+        )
+
+        return None, None
+
+    # ========================================================
+    # PRINT LOADED INFORMATION
+    # ========================================================
+
     print()
+
+    print(
+        "Agent X loaded successfully."
+    )
+
+    print(
+        "Agent O loaded successfully."
+    )
+
+    print()
+
     print(
         "Agent X device:",
         agent_x.device
@@ -513,6 +587,30 @@ def train_agents(
         agent_o.device
     )
 
+    print()
+
+    print(
+        f"Loaded X epsilon: "
+        f"{agent_x.epsilon:.4f}"
+    )
+
+    print(
+        f"Loaded O epsilon: "
+        f"{agent_o.epsilon:.4f}"
+    )
+
+    print()
+
+    print(
+        f"Loaded X training steps: "
+        f"{agent_x.training_steps}"
+    )
+
+    print(
+        f"Loaded O training steps: "
+        f"{agent_o.training_steps}"
+    )
+
     # ========================================================
     # TRAINING STATISTICS
     # ========================================================
@@ -521,45 +619,22 @@ def train_agents(
     o_wins = 0
     draws = 0
 
+    total_moves = 0
+
     all_x_losses = []
     all_o_losses = []
 
-    total_moves = 0
-
     # ========================================================
-    # CREATE MODEL DIRECTORY
+    # CONTINUED TRAINING LOOP
     # ========================================================
 
-    model_dir = os.path.join(
-        PROJECT_ROOT,
-        "models"
-    )
-
-    os.makedirs(
-        model_dir,
-        exist_ok=True
-    )
-
-    print()
-    print(
-        "Models will be saved in:"
-    )
-
-    print(
-        model_dir
-    )
-
-    # ========================================================
-    # TRAINING LOOP
-    # ========================================================
-
-    for game_number in range(
+    for game_index in range(
         1,
-        num_games + 1
+        additional_games + 1
     ):
 
         # ----------------------------------------------------
-        # Play one complete game
+        # Play one game
         # ----------------------------------------------------
 
         result = play_one_game(
@@ -569,14 +644,10 @@ def train_agents(
         )
 
         # ----------------------------------------------------
-        # Get winner
+        # Winner
         # ----------------------------------------------------
 
         winner = result["winner"]
-
-        # ----------------------------------------------------
-        # Update statistics
-        # ----------------------------------------------------
 
         if winner == X:
 
@@ -591,13 +662,13 @@ def train_agents(
             draws += 1
 
         # ----------------------------------------------------
-        # Track number of moves
+        # Moves
         # ----------------------------------------------------
 
         total_moves += result["moves"]
 
         # ----------------------------------------------------
-        # Store losses
+        # Losses
         # ----------------------------------------------------
 
         if result["x_losses"]:
@@ -616,67 +687,82 @@ def train_agents(
         # EPSILON DECAY
         # ====================================================
 
-        # Epsilon is decayed once per game, not once per move.
-
         agent_x.decay_epsilon()
         agent_o.decay_epsilon()
 
         # ====================================================
-        # PRINT PROGRESS
+        # CURRENT TOTAL GAME NUMBER
+        # ====================================================
+
+        current_total_game = (
+            previous_games
+            + game_index
+        )
+
+        # ====================================================
+        # PROGRESS EVERY 50 GAMES
         # ====================================================
 
         if (
-            game_number % 10 == 0
-            or game_number == 1
-            or game_number == num_games
+            game_index % 50 == 0
+            or game_index == 1
+            or game_index == additional_games
         ):
+
+            average_moves = (
+                total_moves / game_index
+            )
 
             if all_x_losses:
 
-                avg_x_loss = float(
+                average_x_loss = float(
                     np.mean(all_x_losses)
                 )
 
             else:
 
-                avg_x_loss = None
+                average_x_loss = None
 
             if all_o_losses:
 
-                avg_o_loss = float(
+                average_o_loss = float(
                     np.mean(all_o_losses)
                 )
 
             else:
 
-                avg_o_loss = None
-
-            avg_moves = (
-                total_moves / game_number
-            )
+                average_o_loss = None
 
             print()
             print("-" * 60)
 
             print(
-                f"Game {game_number}/{num_games}"
+                f"Training progress: "
+                f"{current_total_game}/{total_games}"
+            )
+
+            print()
+
+            print(
+                f"Additional games played: "
+                f"{game_index}"
             )
 
             print(
-                f"X wins : {x_wins}"
+                f"X wins: {x_wins}"
             )
 
             print(
-                f"O wins : {o_wins}"
+                f"O wins: {o_wins}"
             )
 
             print(
-                f"Draws  : {draws}"
+                f"Draws: {draws}"
             )
 
             print(
                 f"Average moves/game: "
-                f"{avg_moves:.2f}"
+                f"{average_moves:.2f}"
             )
 
             print()
@@ -695,13 +781,15 @@ def train_agents(
 
             print(
                 f"Average X loss: "
-                f"{avg_x_loss}"
+                f"{average_x_loss}"
             )
 
             print(
                 f"Average O loss: "
-                f"{avg_o_loss}"
+                f"{average_o_loss}"
             )
+
+            print()
 
             print(
                 f"Replay buffer X: "
@@ -713,58 +801,63 @@ def train_agents(
                 f"{len(agent_o.replay_buffer)}"
             )
 
+            print(
+                f"Training steps X: "
+                f"{agent_x.training_steps}"
+            )
+
+            print(
+                f"Training steps O: "
+                f"{agent_o.training_steps}"
+            )
+
         # ====================================================
         # SAVE CHECKPOINT
         # ====================================================
 
         if (
-            game_number % save_every == 0
+            current_total_game % save_every == 0
         ):
 
-            x_checkpoint = os.path.join(
+            checkpoint_x = os.path.join(
                 model_dir,
-                f"agent_x_game_{game_number}.pth"
+                f"agent_x_game_{current_total_game}.pth"
             )
 
-            o_checkpoint = os.path.join(
+            checkpoint_o = os.path.join(
                 model_dir,
-                f"agent_o_game_{game_number}.pth"
+                f"agent_o_game_{current_total_game}.pth"
             )
 
             agent_x.save(
-                x_checkpoint
+                checkpoint_x
             )
 
             agent_o.save(
-                o_checkpoint
+                checkpoint_o
             )
 
             print()
             print(
-                f"Checkpoint saved "
-                f"after game {game_number}"
+                f"Checkpoint saved at "
+                f"{current_total_game} games."
             )
 
     # ========================================================
     # SAVE FINAL MODELS
     # ========================================================
 
-    final_x_path = os.path.join(
-        model_dir,
-        "agent_x_final.pth"
-    )
-
-    final_o_path = os.path.join(
-        model_dir,
-        "agent_o_final.pth"
+    print()
+    print(
+        "Saving final models..."
     )
 
     agent_x.save(
-        final_x_path
+        model_x_path
     )
 
     agent_o.save(
-        final_o_path
+        model_o_path
     )
 
     # ========================================================
@@ -773,26 +866,49 @@ def train_agents(
 
     print()
     print("=" * 60)
-    print(" TRAINING COMPLETED")
+    print(" 1000-GAME TRAINING COMPLETED")
     print("=" * 60)
 
     print()
 
     print(
-        f"Total games: {num_games}"
+        f"Total games trained: "
+        f"{total_games}"
     )
 
     print(
-        f"X wins: {x_wins}"
+        f"X wins during continued training: "
+        f"{x_wins}"
     )
 
     print(
-        f"O wins: {o_wins}"
+        f"O wins during continued training: "
+        f"{o_wins}"
     )
 
     print(
-        f"Draws: {draws}"
+        f"Draws during continued training: "
+        f"{draws}"
     )
+
+    print()
+
+    if additional_games > 0:
+
+        print(
+            f"X win rate during continued training: "
+            f"{(x_wins / additional_games) * 100:.2f}%"
+        )
+
+        print(
+            f"O win rate during continued training: "
+            f"{(o_wins / additional_games) * 100:.2f}%"
+        )
+
+        print(
+            f"Draw rate during continued training: "
+            f"{(draws / additional_games) * 100:.2f}%"
+        )
 
     print()
 
@@ -808,31 +924,15 @@ def train_agents(
 
     print()
 
-    if all_x_losses:
+    print(
+        f"Final training steps X: "
+        f"{agent_x.training_steps}"
+    )
 
-        print(
-            f"Final average X loss: "
-            f"{np.mean(all_x_losses):.6f}"
-        )
-
-    else:
-
-        print(
-            "Final average X loss: None"
-        )
-
-    if all_o_losses:
-
-        print(
-            f"Final average O loss: "
-            f"{np.mean(all_o_losses):.6f}"
-        )
-
-    else:
-
-        print(
-            "Final average O loss: None"
-        )
+    print(
+        f"Final training steps O: "
+        f"{agent_o.training_steps}"
+    )
 
     print()
 
@@ -853,7 +953,7 @@ def train_agents(
     )
 
     print(
-        final_x_path
+        model_x_path
     )
 
     print()
@@ -863,7 +963,7 @@ def train_agents(
     )
 
     print(
-        final_o_path
+        model_o_path
     )
 
     print()
@@ -883,17 +983,25 @@ if __name__ == "__main__":
     print()
     print("=" * 60)
     print(" DDQN ULTIMATE TIC-TAC-TOE")
-    print(" SELF-PLAY TRAINING")
+    print(" CONTINUED TRAINING")
     print("=" * 60)
 
-    # ========================================================
-    # TRAIN
-    # ========================================================
+    # --------------------------------------------------------
+    # Continue from the existing 100-game models.
+    #
+    # 100 previous games
+    # +900 new games
+    # =1000 total games
+    # --------------------------------------------------------
 
-    agent_x, agent_o = train_agents(
-        num_games=100,
-        save_every=25
+    agent_x, agent_o = continue_training(
+        total_games=1000,
+        previous_games=100,
+        save_every=100
     )
 
     print()
-    print("100-GAME TRAINING TEST COMPLETED.")
+
+    print(
+        "CONTINUED TRAINING FINISHED."
+    )
