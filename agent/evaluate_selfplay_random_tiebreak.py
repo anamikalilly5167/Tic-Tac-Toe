@@ -41,7 +41,7 @@ NUM_GAMES = 100
 
 # Actions whose Q-value is within this amount of the
 # maximum Q-value are considered tied.
-TIE_TOLERANCE = 1e-5
+TIE_TOLERANCE = 0.10
 
 
 # ============================================================
@@ -104,14 +104,10 @@ def select_action_random_tiebreak(
     tolerance=TIE_TOLERANCE
 ):
     """
-    Select the best legal action according to the DDQN
-    network.
+    Select action using greedy Q-values
+    with random tie-breaking.
 
-    If several legal actions have Q-values within
-    `tolerance` of the best Q-value, randomly choose
-    between those actions.
-
-    This is ONLY for diagnostic evaluation.
+    DEBUG VERSION.
     """
 
     if not valid_actions:
@@ -119,17 +115,9 @@ def select_action_random_tiebreak(
             "valid_actions cannot be empty."
         )
 
-    # --------------------------------------------------------
-    # Convert state to tensor
-    # --------------------------------------------------------
-
     state_tensor = torch.FloatTensor(
         np.asarray(state, dtype=np.float32)
     ).unsqueeze(0).to(agent.device)
-
-    # --------------------------------------------------------
-    # Get Q-values
-    # --------------------------------------------------------
 
     with torch.no_grad():
 
@@ -139,10 +127,6 @@ def select_action_random_tiebreak(
 
     q_values = q_values.squeeze(0).cpu().numpy()
 
-    # --------------------------------------------------------
-    # Get Q-values only for legal actions
-    # --------------------------------------------------------
-
     legal_q_values = np.array(
         [
             q_values[action]
@@ -151,17 +135,9 @@ def select_action_random_tiebreak(
         dtype=np.float32
     )
 
-    # --------------------------------------------------------
-    # Find maximum legal Q-value
-    # --------------------------------------------------------
-
     max_q = np.max(
         legal_q_values
     )
-
-    # --------------------------------------------------------
-    # Find actions close to the maximum
-    # --------------------------------------------------------
 
     tied_actions = [
         action
@@ -172,14 +148,50 @@ def select_action_random_tiebreak(
         if q_value >= max_q - tolerance
     ]
 
-    # --------------------------------------------------------
-    # Randomly select among tied actions
-    # --------------------------------------------------------
+    # --------------------------------------------------
+    # DEBUG OUTPUT
+    # --------------------------------------------------
 
-    return random.choice(
+    ranked = sorted(
+        [
+            (a, q_values[a])
+            for a in valid_actions
+        ],
+        key=lambda x: x[1],
+        reverse=True
+    )
+
+    print("\nTop legal actions:")
+
+    for action, q in ranked[:5]:
+
+        board = action // 9
+        cell = action % 9
+
+        print(
+            f"  action={action:2d} "
+            f"(board={board}, cell={cell}) "
+            f"Q={q:.8f}"
+        )
+
+    print(
+        f"Best Q-value: {max_q:.8f}"
+    )
+
+    print(
+        f"Tied actions ({len(tied_actions)}): "
+        f"{tied_actions}"
+    )
+
+    chosen_action = random.choice(
         tied_actions
     )
 
+    print(
+        f"Chosen action: {chosen_action}"
+    )
+
+    return chosen_action
 
 # ============================================================
 # PLAY ONE GAME
@@ -638,6 +650,6 @@ if __name__ == "__main__":
     # --------------------------------------------------------
 
     evaluate(
-        num_games=NUM_GAMES,
-        render_first_game=False
-    )
+    num_games=100,
+    render_first_game=True
+)

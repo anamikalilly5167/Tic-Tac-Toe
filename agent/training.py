@@ -410,9 +410,9 @@ def play_one_game(
 # ============================================================
 
 def continue_training(
-    total_games=1000,
-    previous_games=100,
-    save_every=100
+    total_games=100,
+    previous_games=0,
+    save_every=200
 ):
     """
     Continue training from the previously saved models.
@@ -424,18 +424,8 @@ def continue_training(
     This will play 900 additional games.
     """
 
-    additional_games = (
-        total_games - previous_games
-    )
-
-    if additional_games <= 0:
-
-        print(
-            "ERROR: total_games must be greater "
-            "than previous_games."
-        )
-
-        return None, None
+    # additional_games will be determined later
+    additional_games = None
 
     # ========================================================
     # MODEL PATHS
@@ -460,31 +450,35 @@ def continue_training(
     # CHECK MODELS
     # ========================================================
 
-    if not os.path.exists(model_x_path):
+    models_exist = (
+        os.path.exists(model_x_path)
+        and
+        os.path.exists(model_o_path)
+    )
 
-        print()
-        print(
-            "ERROR: Agent X model not found:"
+    # ========================================================
+    # DETERMINE TRAINING MODE
+    # ========================================================
+
+    if models_exist:
+
+        additional_games = (
+            total_games - previous_games
         )
 
-        print(
-            model_x_path
-        )
+        if additional_games <= 0:
 
-        return None, None
+            print(
+                "ERROR: total_games must be greater "
+                "than previous_games."
+            )
 
-    if not os.path.exists(model_o_path):
+            return None, None
 
-        print()
-        print(
-            "ERROR: Agent O model not found:"
-        )
+    else:
 
-        print(
-            model_o_path
-        )
-
-        return None, None
+        previous_games = 0
+        additional_games = total_games
 
     # ========================================================
     # HEADER
@@ -538,79 +532,144 @@ def continue_training(
     # LOAD EXISTING MODELS
     # ========================================================
 
-    try:
-
-        agent_x.load(
-            model_x_path
-        )
-
-        agent_o.load(
-            model_o_path
-        )
-
-    except Exception as error:
+    if models_exist:
 
         print()
         print(
-            "ERROR while loading models:"
+            "Existing models found."
         )
 
         print(
-            error
+            "Loading existing models..."
         )
 
-        return None, None
+        try:
+
+            agent_x.load(
+                model_x_path
+            )
+
+            agent_o.load(
+                model_o_path
+            )
+
+        except Exception as error:
+
+            print()
+            print(
+                "ERROR while loading models:"
+            )
+
+            print(
+                error
+            )
+
+            return None, None
+
+    else:
+
+        print()
+        print(
+            "No existing models found."
+        )
+
+        print(
+            "Starting training from scratch."
+        )
 
     # ========================================================
-    # PRINT LOADED INFORMATION
+    # PRINT AGENT INFORMATION
     # ========================================================
 
-    print()
+    if models_exist:
 
-    print(
-        "Agent X loaded successfully."
-    )
+        print()
 
-    print(
-        "Agent O loaded successfully."
-    )
+        print(
+            "Agent X loaded successfully."
+        )
 
-    print()
+        print(
+            "Agent O loaded successfully."
+        )
 
-    print(
-        "Agent X device:",
-        agent_x.device
-    )
+        print()
 
-    print(
-        "Agent O device:",
-        agent_o.device
-    )
+        print(
+            "Agent X device:",
+            agent_x.device
+        )
 
-    print()
+        print(
+            "Agent O device:",
+            agent_o.device
+        )
 
-    print(
-        f"Loaded X epsilon: "
-        f"{agent_x.epsilon:.4f}"
-    )
+        print()
 
-    print(
-        f"Loaded O epsilon: "
-        f"{agent_o.epsilon:.4f}"
-    )
+        print(
+            f"Loaded X epsilon: "
+            f"{agent_x.epsilon:.4f}"
+        )
 
-    print()
+        print(
+            f"Loaded O epsilon: "
+            f"{agent_o.epsilon:.4f}"
+        )
 
-    print(
-        f"Loaded X training steps: "
-        f"{agent_x.training_steps}"
-    )
+        print()
 
-    print(
-        f"Loaded O training steps: "
-        f"{agent_o.training_steps}"
-    )
+        print(
+            f"Loaded X training steps: "
+            f"{agent_x.training_steps}"
+        )
 
+        print(
+            f"Loaded O training steps: "
+            f"{agent_o.training_steps}"
+        )
+
+    else:
+
+        print()
+
+        print(
+            "Fresh DDQN agents created."
+        )
+
+        print(
+            "No existing models were found."
+        )
+
+        print()
+
+        print(
+            "Agent X device:",
+            agent_x.device
+        )
+
+        print(
+            "Agent O device:",
+            agent_o.device
+        )
+
+        print()
+
+        print(
+            f"Initial X epsilon: "
+            f"{agent_x.epsilon:.4f}"
+        )
+
+        print(
+            f"Initial O epsilon: "
+            f"{agent_o.epsilon:.4f}"
+        )
+
+        print()
+
+        print(
+            "Training starts from game 0."
+        )
     # ========================================================
     # TRAINING STATISTICS
     # ========================================================
@@ -995,10 +1054,10 @@ if __name__ == "__main__":
     # --------------------------------------------------------
 
     agent_x, agent_o = continue_training(
-        total_games=1000,
-        previous_games=100,
-        save_every=100
-    )
+    total_games=5000,
+    previous_games=0,
+    save_every=500
+)
 
     print()
 

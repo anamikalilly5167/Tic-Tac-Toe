@@ -228,7 +228,7 @@ def play_game(
 def evaluate(
     trained_player,
     trained_agent,
-    num_games=100,
+    num_games=5000,
     render_first_game=False
 ):
     """
@@ -521,7 +521,7 @@ if __name__ == "__main__":
     results_x = evaluate(
         trained_player=X,
         trained_agent=agent_x,
-        num_games=100,
+        num_games=5000,
         render_first_game=False
     )
 
@@ -542,7 +542,7 @@ if __name__ == "__main__":
     results_o = evaluate(
         trained_player=O,
         trained_agent=agent_o,
-        num_games=100,
+        num_games=5000,
         render_first_game=False
     )
 
