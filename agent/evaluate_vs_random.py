@@ -37,6 +37,13 @@ O = -1
 
 
 # ============================================================
+# EVALUATION SETTINGS
+# ============================================================
+
+NUM_GAMES = 5000
+
+
+# ============================================================
 # MODEL PATHS
 # ============================================================
 
@@ -76,7 +83,10 @@ def load_agent(model_path):
 
     agent.load(model_path)
 
+    # --------------------------------------------------------
     # Disable exploration completely
+    # --------------------------------------------------------
+
     agent.epsilon = 0.0
 
     return agent
@@ -92,7 +102,8 @@ def play_game(
     render=False
 ):
     """
-    Play one game between a trained agent and a random agent.
+    Play one game between a trained DDQN agent
+    and a random opponent.
 
     Parameters
     ----------
@@ -100,7 +111,7 @@ def play_game(
         X or O
 
     trained_agent:
-        The DDQN agent controlling trained_player
+        DDQN agent controlling trained_player
 
     render:
         If True, print every move
@@ -117,7 +128,15 @@ def play_game(
 
     while not done:
 
+        # ====================================================
+        # CURRENT PLAYER
+        # ====================================================
+
         current_player = env.get_current_player()
+
+        # ====================================================
+        # VALID ACTIONS
+        # ====================================================
 
         valid_actions = env.get_valid_moves()
 
@@ -136,7 +155,7 @@ def play_game(
         if current_player == trained_player:
 
             # ------------------------------------------------
-            # TRAINED AGENT
+            # DDQN AGENT
             # ------------------------------------------------
 
             action = trained_agent.select_action(
@@ -184,6 +203,7 @@ def play_game(
             )
 
             print()
+
             print(
                 f"Move {move_count}: "
                 f"Player {player_name} "
@@ -204,7 +224,7 @@ def play_game(
         state = next_state
 
     # ========================================================
-    # GET RESULT
+    # GET FINAL RESULT
     # ========================================================
 
     game_info = env.get_game_info()
@@ -228,11 +248,12 @@ def play_game(
 def evaluate(
     trained_player,
     trained_agent,
-    num_games=5000,
+    num_games=NUM_GAMES,
     render_first_game=False
 ):
     """
-    Evaluate one trained agent against a random opponent.
+    Evaluate one trained DDQN agent against
+    a random opponent.
     """
 
     trained_wins = 0
@@ -240,8 +261,13 @@ def evaluate(
     draws = 0
 
     total_moves = 0
+
     shortest_game = None
     longest_game = None
+
+    # ========================================================
+    # PLAY GAMES
+    # ========================================================
 
     for game_number in range(
         1,
@@ -262,29 +288,39 @@ def evaluate(
 
         total_moves += moves
 
-        # ----------------------------------------------------
-        # Track shortest/longest
-        # ----------------------------------------------------
+        # ====================================================
+        # TRACK SHORTEST GAME
+        # ====================================================
 
         if shortest_game is None:
+
             shortest_game = moves
+
         else:
+
             shortest_game = min(
                 shortest_game,
                 moves
             )
 
+        # ====================================================
+        # TRACK LONGEST GAME
+        # ====================================================
+
         if longest_game is None:
+
             longest_game = moves
+
         else:
+
             longest_game = max(
                 longest_game,
                 moves
             )
 
-        # ----------------------------------------------------
-        # Determine winner
-        # ----------------------------------------------------
+        # ====================================================
+        # DETERMINE WINNER
+        # ====================================================
 
         if winner == trained_player:
 
@@ -299,7 +335,7 @@ def evaluate(
             draws += 1
 
     # ========================================================
-    # STATISTICS
+    # CALCULATE STATISTICS
     # ========================================================
 
     trained_win_rate = (
@@ -319,7 +355,7 @@ def evaluate(
     )
 
     # ========================================================
-    # PRINT RESULTS
+    # PLAYER NAME
     # ========================================================
 
     player_name = (
@@ -328,7 +364,12 @@ def evaluate(
         else "O"
     )
 
+    # ========================================================
+    # PRINT RESULTS
+    # ========================================================
+
     print()
+
     print("=" * 60)
 
     print(
@@ -396,6 +437,10 @@ def evaluate(
 
     print()
 
+    # ========================================================
+    # RETURN RESULTS
+    # ========================================================
+
     return {
         "trained_player": trained_player,
         "trained_wins": trained_wins,
@@ -417,9 +462,17 @@ def evaluate(
 if __name__ == "__main__":
 
     print()
+
     print("=" * 60)
-    print(" DDQN ULTIMATE TIC-TAC-TOE")
-    print(" EVALUATION AGAINST RANDOM")
+
+    print(
+        " DDQN ULTIMATE TIC-TAC-TOE"
+    )
+
+    print(
+        " EVALUATION AGAINST RANDOM"
+    )
+
     print("=" * 60)
 
     print()
@@ -453,7 +506,7 @@ if __name__ == "__main__":
         sys.exit(1)
 
     # ========================================================
-    # LOAD MODELS
+    # LOAD X MODEL
     # ========================================================
 
     print(
@@ -470,6 +523,10 @@ if __name__ == "__main__":
 
     print()
 
+    # ========================================================
+    # LOAD O MODEL
+    # ========================================================
+
     print(
         "Loading O model..."
     )
@@ -484,12 +541,16 @@ if __name__ == "__main__":
 
     print()
 
+    # ========================================================
+    # EVALUATION SETTINGS
+    # ========================================================
+
     print(
         "Evaluation settings:"
     )
 
     print(
-        "  Number of games : 100"
+        f"  Number of games : {NUM_GAMES}"
     )
 
     print(
@@ -509,7 +570,7 @@ if __name__ == "__main__":
     # ========================================================
 
     print()
-    print()
+
     print(
         "TEST 1:"
     )
@@ -521,7 +582,7 @@ if __name__ == "__main__":
     results_x = evaluate(
         trained_player=X,
         trained_agent=agent_x,
-        num_games=5000,
+        num_games=NUM_GAMES,
         render_first_game=False
     )
 
@@ -530,7 +591,7 @@ if __name__ == "__main__":
     # ========================================================
 
     print()
-    print()
+
     print(
         "TEST 2:"
     )
@@ -542,7 +603,7 @@ if __name__ == "__main__":
     results_o = evaluate(
         trained_player=O,
         trained_agent=agent_o,
-        num_games=5000,
+        num_games=NUM_GAMES,
         render_first_game=False
     )
 
@@ -551,12 +612,22 @@ if __name__ == "__main__":
     # ========================================================
 
     print()
+
     print()
+
     print("=" * 60)
-    print(" FINAL EVALUATION SUMMARY")
+
+    print(
+        " FINAL EVALUATION SUMMARY"
+    )
+
     print("=" * 60)
 
     print()
+
+    # ========================================================
+    # TEST 1 SUMMARY
+    # ========================================================
 
     print(
         "Test 1: DDQN X vs Random O"
@@ -564,17 +635,17 @@ if __name__ == "__main__":
 
     print(
         f"  X wins: "
-        f"{results_x['trained_wins']}/100"
+        f"{results_x['trained_wins']}/{NUM_GAMES}"
     )
 
     print(
         f"  O wins: "
-        f"{results_x['random_wins']}/100"
+        f"{results_x['random_wins']}/{NUM_GAMES}"
     )
 
     print(
         f"  Draws: "
-        f"{results_x['draws']}/100"
+        f"{results_x['draws']}/{NUM_GAMES}"
     )
 
     print(
@@ -582,7 +653,21 @@ if __name__ == "__main__":
         f"{results_x['trained_win_rate']:.2f}%"
     )
 
+    print(
+        f"  O win rate: "
+        f"{results_x['random_win_rate']:.2f}%"
+    )
+
+    print(
+        f"  Draw rate: "
+        f"{results_x['draw_rate']:.2f}%"
+    )
+
     print()
+
+    # ========================================================
+    # TEST 2 SUMMARY
+    # ========================================================
 
     print(
         "Test 2: Random X vs DDQN O"
@@ -590,17 +675,17 @@ if __name__ == "__main__":
 
     print(
         f"  O wins: "
-        f"{results_o['trained_wins']}/100"
+        f"{results_o['trained_wins']}/{NUM_GAMES}"
     )
 
     print(
         f"  X wins: "
-        f"{results_o['random_wins']}/100"
+        f"{results_o['random_wins']}/{NUM_GAMES}"
     )
 
     print(
         f"  Draws: "
-        f"{results_o['draws']}/100"
+        f"{results_o['draws']}/{NUM_GAMES}"
     )
 
     print(
@@ -608,10 +693,28 @@ if __name__ == "__main__":
         f"{results_o['trained_win_rate']:.2f}%"
     )
 
+    print(
+        f"  X win rate: "
+        f"{results_o['random_win_rate']:.2f}%"
+    )
+
+    print(
+        f"  Draw rate: "
+        f"{results_o['draw_rate']:.2f}%"
+    )
+
     print()
 
+    # ========================================================
+    # EVALUATION COMPLETE
+    # ========================================================
+
     print("=" * 60)
-    print(" EVALUATION COMPLETED")
+
+    print(
+        " EVALUATION COMPLETED"
+    )
+
     print("=" * 60)
 
     print()

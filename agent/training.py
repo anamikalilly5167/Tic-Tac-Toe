@@ -1,9 +1,10 @@
 import sys
 import os
+import random
 import numpy as np
 
 # ============================================================
-# MAKE ENVIRONMENT IMPORTABLE
+# PROJECT PATH
 # ============================================================
 
 PROJECT_ROOT = os.path.dirname(
@@ -36,29 +37,71 @@ O = -1
 
 
 # ============================================================
-# PLAY ONE SELF-PLAY GAME
+# RANDOM PLAYER
+# ============================================================
+
+def select_random_action(valid_actions):
+    """
+    Select a random legal action.
+
+    The random player does not learn.
+    """
+
+    if len(valid_actions) == 0:
+        raise ValueError(
+            "Random player received no valid actions."
+        )
+
+    return random.choice(valid_actions)
+
+
+# ============================================================
+# PLAY ONE DDQN VS RANDOM GAME
 # ============================================================
 
 def play_one_game(
-    agent_x,
-    agent_o,
+    ddqn_agent,
+    ddqn_player,
     render=False
 ):
     """
     Play one complete Ultimate Tic-Tac-Toe game.
 
-    Agent X controls X.
-    Agent O controls O.
+    Training setup:
 
-    Each agent stores transitions from one of its
-    decision points to its next decision point.
+        ddqn_player == X
+            DDQN X vs Random O
+
+        ddqn_player == O
+            Random X vs DDQN O
+
+    Only the DDQN agent learns.
+
+    Reward structure:
+
+        Local board win       -> +0.2
+        Complete game win    -> +1.0
+        Complete game loss   -> -1.0
+        Draw                 -> 0.0
+        Normal move          -> 0.0
+        Illegal move        -> -1.0
     """
+
+    if ddqn_player not in (X, O):
+
+        raise ValueError(
+            "ddqn_player must be X (1) or O (-1)."
+        )
+
+    # ========================================================
+    # CREATE ENVIRONMENT
+    # ========================================================
 
     env = UltimateTTTEnv()
 
-    # --------------------------------------------------------
+    # ========================================================
     # RESET
-    # --------------------------------------------------------
+    # ========================================================
 
     state = env.reset()
 
@@ -67,15 +110,20 @@ def play_one_game(
 
     last_info = {}
 
-    losses_x = []
-    losses_o = []
+    losses = []
 
-    # --------------------------------------------------------
-    # Pending transitions
-    # --------------------------------------------------------
+    # ========================================================
+    # PENDING DDQN TRANSITION
+    # ========================================================
 
-    pending_x = None
-    pending_o = None
+    pending_state = None
+    pending_action = None
+
+    # Reward received from the DDQN's move.
+    #
+    # This is important because the environment's reward
+    # may be +0.2 when the DDQN wins a local board.
+    pending_reward = 0.0
 
     # ========================================================
     # GAME LOOP
@@ -84,13 +132,13 @@ def play_one_game(
     while not done:
 
         # ----------------------------------------------------
-        # Current player
+        # CURRENT PLAYER
         # ----------------------------------------------------
 
         current_player = env.get_current_player()
 
         # ----------------------------------------------------
-        # Legal actions
+        # VALID ACTIONS
         # ----------------------------------------------------
 
         valid_actions = env.get_valid_moves()
@@ -103,74 +151,99 @@ def play_one_game(
 
             break
 
-        # ----------------------------------------------------
-        # Select agent
-        # ----------------------------------------------------
-
-        if current_player == env.X:
-
-            agent = agent_x
-            pending = pending_x
-
-        else:
-
-            agent = agent_o
-            pending = pending_o
-
         # ====================================================
-        # FINALIZE PREVIOUS TRANSITION
+        # FINALIZE PREVIOUS DDQN TRANSITION
         # ====================================================
 
-        if pending is not None:
+        if (
+            current_player == ddqn_player
+            and
+            pending_state is not None
+        ):
 
-            old_state, old_action = pending
+            # ------------------------------------------------
+            # The DDQN's previous move did not end the game.
+            #
+            # The Random player has now made its response.
+            #
+            # Therefore this is the next decision state for
+            # the DDQN.
+            # ------------------------------------------------
 
-            agent.remember(
-                old_state,
-                old_action,
-                0.0,
+            ddqn_agent.remember(
+                pending_state,
+                pending_action,
+                pending_reward,
                 state.copy(),
                 False,
                 list(valid_actions)
             )
 
-            # Clear pending transition
-
-            if current_player == env.X:
-
-                pending_x = None
-
-            else:
-
-                pending_o = None
-
             # ------------------------------------------------
-            # Learn
+            # LEARN
             # ------------------------------------------------
 
-            loss = agent.learn()
+            loss = ddqn_agent.learn()
 
             if loss is not None:
+                losses.append(loss)
 
-                if current_player == env.X:
+            # ------------------------------------------------
+            # CLEAR PENDING TRANSITION
+            # ------------------------------------------------
 
-                    losses_x.append(loss)
-
-                else:
-
-                    losses_o.append(loss)
+            pending_state = None
+            pending_action = None
+            pending_reward = 0.0
 
         # ====================================================
         # SELECT ACTION
         # ====================================================
 
-        action = agent.select_action(
-            state,
-            valid_actions,
-            training=True
-        )
+        if current_player == ddqn_player:
+
+            # ------------------------------------------------
+            # DDQN PLAYER
+            # ------------------------------------------------
+
+            action = ddqn_agent.select_action(
+                state,
+                valid_actions,
+                training=True
+            )
+
+            player_name = (
+                "X"
+                if ddqn_player == X
+                else "O"
+            )
+
+        else:
+
+            # ------------------------------------------------
+            # RANDOM PLAYER
+            # ------------------------------------------------
+
+            action = select_random_action(
+                valid_actions
+            )
+
+            player_name = (
+                "X"
+                if current_player == X
+                else "O"
+            )
 
         player_who_moved = current_player
+
+        # ====================================================
+        # SAVE DDQN STATE AND ACTION
+        # ====================================================
+
+        if current_player == ddqn_player:
+
+            pending_state = state.copy()
+            pending_action = action
 
         # ====================================================
         # ENVIRONMENT STEP
@@ -183,6 +256,26 @@ def play_one_game(
         last_info = info
 
         # ====================================================
+        # DDQN MOVE REWARD
+        # ====================================================
+
+        if current_player == ddqn_player:
+
+            # Store the reward generated by the DDQN's move.
+            #
+            # Examples:
+            #
+            # Normal move       -> 0.0
+            # Local board win   -> +0.2
+            # Game win          -> +1.0
+            # Draw              -> 0.0
+            # Illegal move      -> -1.0
+
+            pending_reward = float(
+                env_reward
+            )
+
+        # ====================================================
         # GAME ENDED
         # ====================================================
 
@@ -190,136 +283,110 @@ def play_one_game(
 
             winner = info.get("winner")
 
-            # ------------------------------------------------
-            # Determine terminal rewards
-            # ------------------------------------------------
+            # =================================================
+            # DETERMINE TERMINAL REWARD
+            # =================================================
 
-            if winner == player_who_moved:
+            if winner == ddqn_player:
 
-                current_reward = 1.0
-                opponent_reward = -1.0
+                terminal_reward = 1.0
 
-            elif winner in (env.X, env.O):
+            elif winner in (X, O):
 
-                current_reward = -1.0
-                opponent_reward = 1.0
+                terminal_reward = -1.0
 
             elif info.get("illegal_move", False):
 
-                current_reward = -1.0
-                opponent_reward = 1.0
+                terminal_reward = -1.0
 
             else:
 
-                current_reward = 0.0
-                opponent_reward = 0.0
+                terminal_reward = 0.0
 
             # =================================================
-            # CURRENT PLAYER FINAL TRANSITION
+            # CURRENT MOVE WAS MADE BY DDQN
             # =================================================
 
-            agent.remember(
-                state.copy(),
-                action,
-                current_reward,
-                next_state.copy(),
-                True,
-                []
-            )
+            if current_player == ddqn_player:
+
+                # ------------------------------------------------
+                # If DDQN itself ended the game, env_reward is
+                # already the terminal reward.
+                #
+                # We do NOT add another terminal reward.
+                # ------------------------------------------------
+
+                ddqn_agent.remember(
+                    pending_state,
+                    pending_action,
+                    pending_reward,
+                    next_state.copy(),
+                    True,
+                    []
+                )
+
+                pending_state = None
+                pending_action = None
+                pending_reward = 0.0
+
+                # ------------------------------------------------
+                # LEARN FROM TERMINAL EXPERIENCE
+                # ------------------------------------------------
+
+                loss = ddqn_agent.learn()
+
+                if loss is not None:
+                    losses.append(loss)
 
             # =================================================
-            # OPPONENT FINAL TRANSITION
+            # RANDOM PLAYER ENDED THE GAME
             # =================================================
 
-            if player_who_moved == env.X:
+            else:
 
-                if pending_o is not None:
+                # ------------------------------------------------
+                # The DDQN made the previous move.
+                #
+                # Its pending transition now ends because the
+                # Random opponent has made the terminal move.
+                #
+                # We combine:
+                #
+                #   reward from DDQN's previous move
+                #   +
+                #   terminal reward from the game result
+                #
+                # This preserves local-board reward shaping.
+                # ------------------------------------------------
 
-                    old_state, old_action = pending_o
+                if pending_state is not None:
 
-                    agent_o.remember(
-                        old_state,
-                        old_action,
-                        opponent_reward,
+                    final_reward = (
+                        pending_reward
+                        + terminal_reward
+                    )
+
+                    ddqn_agent.remember(
+                        pending_state,
+                        pending_action,
+                        final_reward,
                         next_state.copy(),
                         True,
                         []
                     )
 
-                    pending_o = None
+                    pending_state = None
+                    pending_action = None
+                    pending_reward = 0.0
 
-            else:
+                    # ------------------------------------------------
+                    # LEARN
+                    # ------------------------------------------------
 
-                if pending_x is not None:
+                    loss = ddqn_agent.learn()
 
-                    old_state, old_action = pending_x
-
-                    agent_x.remember(
-                        old_state,
-                        old_action,
-                        opponent_reward,
-                        next_state.copy(),
-                        True,
-                        []
-                    )
-
-                    pending_x = None
-
-            # =================================================
-            # LEARN FROM CURRENT PLAYER
-            # =================================================
-
-            loss = agent.learn()
-
-            if loss is not None:
-
-                if player_who_moved == env.X:
-
-                    losses_x.append(loss)
-
-                else:
-
-                    losses_o.append(loss)
-
-            # =================================================
-            # LEARN FROM OPPONENT
-            # =================================================
-
-            if player_who_moved == env.X:
-
-                loss_o = agent_o.learn()
-
-                if loss_o is not None:
-
-                    losses_o.append(loss_o)
-
-            else:
-
-                loss_x = agent_x.learn()
-
-                if loss_x is not None:
-
-                    losses_x.append(loss_x)
-
-        # ====================================================
-        # GAME CONTINUES
-        # ====================================================
-
-        else:
-
-            if player_who_moved == env.X:
-
-                pending_x = (
-                    state.copy(),
-                    action
-                )
-
-            else:
-
-                pending_o = (
-                    state.copy(),
-                    action
-                )
+                    if loss is not None:
+                        losses.append(loss)
 
         # ====================================================
         # UPDATE STATE
@@ -335,12 +402,6 @@ def play_one_game(
 
         if render:
 
-            player_name = (
-                "X"
-                if player_who_moved == env.X
-                else "O"
-            )
-
             print()
 
             print(
@@ -354,12 +415,18 @@ def play_one_game(
                 f"{env_reward}"
             )
 
+            if info.get("local_result") is not None:
+
+                print(
+                    f"Local board result: "
+                    f"{info.get('local_result')}"
+                )
+
             if done:
 
                 print(
-                    f"Terminal reward for "
-                    f"{player_name}: "
-                    f"{current_reward}"
+                    f"Winner: "
+                    f"{info.get('winner')}"
                 )
 
             env.render()
@@ -376,6 +443,22 @@ def play_one_game(
     )
 
     # ========================================================
+    # DETERMINE DDQN RESULT
+    # ========================================================
+
+    if winner == ddqn_player:
+
+        ddqn_result = "win"
+
+    elif winner in (X, O):
+
+        ddqn_result = "loss"
+
+    else:
+
+        ddqn_result = "draw"
+
+    # ========================================================
     # RETURN
     # ========================================================
 
@@ -383,58 +466,73 @@ def play_one_game(
 
         "winner": winner,
 
+        "ddqn_player": ddqn_player,
+
+        "ddqn_result": ddqn_result,
+
         "moves": move_count,
 
         "info": game_info,
 
-        "avg_loss_x": (
-            float(np.mean(losses_x))
-            if losses_x
+        "avg_loss": (
+            float(np.mean(losses))
+            if losses
             else None
         ),
 
-        "avg_loss_o": (
-            float(np.mean(losses_o))
-            if losses_o
-            else None
-        ),
-
-        "x_losses": losses_x,
-
-        "o_losses": losses_o
+        "losses": losses
     }
 
 
 # ============================================================
-# CONTINUE TRAINING FROM EXISTING MODELS
+# TRAIN DDQN AGAINST RANDOM
 # ============================================================
 
-def continue_training(
-    total_games=100,
+def train_against_random(
+    total_games=5000,
     previous_games=0,
-    save_every=200
+    save_every=500
 ):
     """
-    Continue training from the previously saved models.
+    Train DDQN agents against a random opponent.
 
-    Example:
-        previous_games = 100
-        total_games = 1000
+    Games alternate:
 
-    This will play 900 additional games.
+        Game 1:
+            DDQN X vs Random O
+
+        Game 2:
+            Random X vs DDQN O
+
+        Game 3:
+            DDQN X vs Random O
+
+        ...
+
+    If final models exist:
+        Load them and continue.
+
+    If final models do not exist:
+        Start from scratch.
     """
 
-    # additional_games will be determined later
-    additional_games = None
-
     # ========================================================
-    # MODEL PATHS
+    # MODEL DIRECTORY
     # ========================================================
 
     model_dir = os.path.join(
         PROJECT_ROOT,
         "models"
     )
+
+    os.makedirs(
+        model_dir,
+        exist_ok=True
+    )
+
+    # ========================================================
+    # FINAL MODEL PATHS
+    # ========================================================
 
     model_x_path = os.path.join(
         model_dir,
@@ -447,7 +545,7 @@ def continue_training(
     )
 
     # ========================================================
-    # CHECK MODELS
+    # CHECK EXISTING MODELS
     # ========================================================
 
     models_exist = (
@@ -457,7 +555,7 @@ def continue_training(
     )
 
     # ========================================================
-    # DETERMINE TRAINING MODE
+    # DETERMINE NUMBER OF GAMES
     # ========================================================
 
     if models_exist:
@@ -468,14 +566,21 @@ def continue_training(
 
         if additional_games <= 0:
 
+            print()
             print(
-                "ERROR: total_games must be greater "
+                "ERROR:"
+            )
+
+            print(
+                "total_games must be greater "
                 "than previous_games."
             )
 
             return None, None
 
     else:
+
+        # Fresh training
 
         previous_games = 0
         additional_games = total_games
@@ -485,32 +590,29 @@ def continue_training(
     # ========================================================
 
     print()
-    print("=" * 60)
-    print(" CONTINUING DDQN TRAINING")
-    print("=" * 60)
+    print("=" * 70)
+    print(" DDQN ULTIMATE TIC-TAC-TOE")
+    print(" DDQN VS RANDOM TRAINING")
+    print("=" * 70)
 
     print()
 
     print(
-        f"Previous games completed : "
+        f"Previous games      : "
         f"{previous_games}"
     )
 
     print(
-        f"Target total games      : "
+        f"Target total games : "
         f"{total_games}"
     )
 
     print(
-        f"Additional games        : "
+        f"Games to play      : "
         f"{additional_games}"
     )
 
     print()
-
-    print(
-        "Loading existing models..."
-    )
 
     # ========================================================
     # CREATE AGENTS
@@ -519,13 +621,15 @@ def continue_training(
     agent_x = DDQNAgent(
         state_size=100,
         action_size=81,
-        batch_size=32
+        batch_size=32,
+        epsilon_decay=0.999
     )
 
     agent_o = DDQNAgent(
         state_size=100,
         action_size=81,
-        batch_size=32
+        batch_size=32,
+        epsilon_decay=0.999
     )
 
     # ========================================================
@@ -534,13 +638,12 @@ def continue_training(
 
     if models_exist:
 
-        print()
         print(
             "Existing models found."
         )
 
         print(
-            "Loading existing models..."
+            "Loading models..."
         )
 
         try:
@@ -566,9 +669,13 @@ def continue_training(
 
             return None, None
 
+        print()
+        print(
+            "Models loaded successfully."
+        )
+
     else:
 
-        print()
         print(
             "No existing models found."
         )
@@ -578,100 +685,49 @@ def continue_training(
         )
 
     # ========================================================
-    # PRINT AGENT INFORMATION
+    # AGENT INFORMATION
     # ========================================================
 
-    if models_exist:
+    print()
 
-        print()
+    print(
+        "Agent X device:",
+        agent_x.device
+    )
 
-        print(
-            "Agent X loaded successfully."
-        )
+    print(
+        "Agent O device:",
+        agent_o.device
+    )
 
-        print(
-            "Agent O loaded successfully."
-        )
+    print()
 
-        print()
+    print(
+        f"Agent X epsilon: "
+        f"{agent_x.epsilon:.4f}"
+    )
 
-        print(
-            "Agent X device:",
-            agent_x.device
-        )
+    print(
+        f"Agent O epsilon: "
+        f"{agent_o.epsilon:.4f}"
+    )
 
-        print(
-            "Agent O device:",
-            agent_o.device
-        )
+    print()
 
-        print()
+    print(
+        f"Agent X training steps: "
+        f"{agent_x.training_steps}"
+    )
 
-        print(
-            f"Loaded X epsilon: "
-            f"{agent_x.epsilon:.4f}"
-        )
+    print(
+        f"Agent O training steps: "
+        f"{agent_o.training_steps}"
+    )
 
-        print(
-            f"Loaded O epsilon: "
-            f"{agent_o.epsilon:.4f}"
-        )
+    print()
 
-        print()
-
-        print(
-            f"Loaded X training steps: "
-            f"{agent_x.training_steps}"
-        )
-
-        print(
-            f"Loaded O training steps: "
-            f"{agent_o.training_steps}"
-        )
-
-    else:
-
-        print()
-
-        print(
-            "Fresh DDQN agents created."
-        )
-
-        print(
-            "No existing models were found."
-        )
-
-        print()
-
-        print(
-            "Agent X device:",
-            agent_x.device
-        )
-
-        print(
-            "Agent O device:",
-            agent_o.device
-        )
-
-        print()
-
-        print(
-            f"Initial X epsilon: "
-            f"{agent_x.epsilon:.4f}"
-        )
-
-        print(
-            f"Initial O epsilon: "
-            f"{agent_o.epsilon:.4f}"
-        )
-
-        print()
-
-        print(
-            "Training starts from game 0."
-        )
     # ========================================================
-    # TRAINING STATISTICS
+    # STATISTICS
     # ========================================================
 
     x_wins = 0
@@ -680,11 +736,23 @@ def continue_training(
 
     total_moves = 0
 
+    # DDQN X statistics
+
+    ddqn_x_wins = 0
+    ddqn_x_losses = 0
+    ddqn_x_draws = 0
+
+    # DDQN O statistics
+
+    ddqn_o_wins = 0
+    ddqn_o_losses = 0
+    ddqn_o_draws = 0
+
     all_x_losses = []
     all_o_losses = []
 
     # ========================================================
-    # CONTINUED TRAINING LOOP
+    # TRAINING LOOP
     # ========================================================
 
     for game_index in range(
@@ -692,19 +760,49 @@ def continue_training(
         additional_games + 1
     ):
 
-        # ----------------------------------------------------
-        # Play one game
-        # ----------------------------------------------------
+        # ====================================================
+        # ALTERNATE DDQN SIDE
+        # ====================================================
+
+        if game_index % 2 == 1:
+
+            # ------------------------------------------------
+            # DDQN X vs Random O
+            # ------------------------------------------------
+
+            ddqn_player = X
+            ddqn_agent = agent_x
+
+            matchup = (
+                "DDQN X vs Random O"
+            )
+
+        else:
+
+            # ------------------------------------------------
+            # Random X vs DDQN O
+            # ------------------------------------------------
+
+            ddqn_player = O
+            ddqn_agent = agent_o
+
+            matchup = (
+                "Random X vs DDQN O"
+            )
+
+        # ====================================================
+        # PLAY GAME
+        # ====================================================
 
         result = play_one_game(
-            agent_x,
-            agent_o,
+            ddqn_agent,
+            ddqn_player,
             render=False
         )
 
-        # ----------------------------------------------------
-        # Winner
-        # ----------------------------------------------------
+        # ====================================================
+        # GAME WINNER
+        # ====================================================
 
         winner = result["winner"]
 
@@ -720,37 +818,66 @@ def continue_training(
 
             draws += 1
 
-        # ----------------------------------------------------
-        # Moves
-        # ----------------------------------------------------
+        # ====================================================
+        # DDQN RESULT
+        # ====================================================
+
+        ddqn_result = result["ddqn_result"]
+
+        if ddqn_player == X:
+
+            if ddqn_result == "win":
+
+                ddqn_x_wins += 1
+
+            elif ddqn_result == "loss":
+
+                ddqn_x_losses += 1
+
+            else:
+
+                ddqn_x_draws += 1
+
+            if result["losses"]:
+
+                all_x_losses.extend(
+                    result["losses"]
+                )
+
+        else:
+
+            if ddqn_result == "win":
+
+                ddqn_o_wins += 1
+
+            elif ddqn_result == "loss":
+
+                ddqn_o_losses += 1
+
+            else:
+
+                ddqn_o_draws += 1
+
+            if result["losses"]:
+
+                all_o_losses.extend(
+                    result["losses"]
+                )
+
+        # ====================================================
+        # MOVES
+        # ====================================================
 
         total_moves += result["moves"]
-
-        # ----------------------------------------------------
-        # Losses
-        # ----------------------------------------------------
-
-        if result["x_losses"]:
-
-            all_x_losses.extend(
-                result["x_losses"]
-            )
-
-        if result["o_losses"]:
-
-            all_o_losses.extend(
-                result["o_losses"]
-            )
 
         # ====================================================
         # EPSILON DECAY
         # ====================================================
 
-        agent_x.decay_epsilon()
-        agent_o.decay_epsilon()
+        ddqn_agent.decay_epsilon()
 
         # ====================================================
-        # CURRENT TOTAL GAME NUMBER
+        # CURRENT TOTAL GAME
         # ====================================================
 
         current_total_game = (
@@ -759,7 +886,7 @@ def continue_training(
         )
 
         # ====================================================
-        # PROGRESS EVERY 50 GAMES
+        # PROGRESS
         # ====================================================
 
         if (
@@ -793,19 +920,19 @@ def continue_training(
                 average_o_loss = None
 
             print()
-            print("-" * 60)
+            print("-" * 70)
 
             print(
                 f"Training progress: "
                 f"{current_total_game}/{total_games}"
             )
 
-            print()
-
             print(
-                f"Additional games played: "
-                f"{game_index}"
+                f"Current matchup: "
+                f"{matchup}"
             )
+
+            print()
 
             print(
                 f"X wins: {x_wins}"
@@ -818,6 +945,44 @@ def continue_training(
             print(
                 f"Draws: {draws}"
             )
+
+            print()
+
+            print(
+                "DDQN X vs Random O:"
+            )
+
+            print(
+                f"  Wins   : {ddqn_x_wins}"
+            )
+
+            print(
+                f"  Losses : {ddqn_x_losses}"
+            )
+
+            print(
+                f"  Draws  : {ddqn_x_draws}"
+            )
+
+            print()
+
+            print(
+                "Random X vs DDQN O:"
+            )
+
+            print(
+                f"  DDQN O wins   : {ddqn_o_wins}"
+            )
+
+            print(
+                f"  DDQN O losses : {ddqn_o_losses}"
+            )
+
+            print(
+                f"  Draws         : {ddqn_o_draws}"
+            )
+
+            print()
 
             print(
                 f"Average moves/game: "
@@ -860,6 +1025,8 @@ def continue_training(
                 f"{len(agent_o.replay_buffer)}"
             )
 
+            print()
+
             print(
                 f"Training steps X: "
                 f"{agent_x.training_steps}"
@@ -899,7 +1066,7 @@ def continue_training(
             print()
             print(
                 f"Checkpoint saved at "
-                f"{current_total_game} games."
+                f"game {current_total_game}."
             )
 
     # ========================================================
@@ -907,9 +1074,9 @@ def continue_training(
     # ========================================================
 
     print()
-    print(
-        "Saving final models..."
-    )
+    print("=" * 70)
+    print(" SAVING FINAL MODELS")
+    print("=" * 70)
 
     agent_x.save(
         model_x_path
@@ -919,14 +1086,34 @@ def continue_training(
         model_o_path
     )
 
+    print()
+
+    print(
+        "Agent X saved:"
+    )
+
+    print(
+        model_x_path
+    )
+
+    print()
+
+    print(
+        "Agent O saved:"
+    )
+
+    print(
+        model_o_path
+    )
+
     # ========================================================
     # FINAL STATISTICS
     # ========================================================
 
     print()
-    print("=" * 60)
-    print(" 1000-GAME TRAINING COMPLETED")
-    print("=" * 60)
+    print("=" * 70)
+    print(" DDQN VS RANDOM TRAINING COMPLETED")
+    print("=" * 70)
 
     print()
 
@@ -935,41 +1122,127 @@ def continue_training(
         f"{total_games}"
     )
 
+    print()
+
     print(
-        f"X wins during continued training: "
-        f"{x_wins}"
+        "Overall game results:"
     )
 
     print(
-        f"O wins during continued training: "
-        f"{o_wins}"
+        f"X wins : {x_wins}"
     )
 
     print(
-        f"Draws during continued training: "
-        f"{draws}"
+        f"O wins : {o_wins}"
+    )
+
+    print(
+        f"Draws  : {draws}"
     )
 
     print()
 
-    if additional_games > 0:
+    # ========================================================
+    # DDQN X STATISTICS
+    # ========================================================
+
+    x_games = (
+        ddqn_x_wins
+        + ddqn_x_losses
+        + ddqn_x_draws
+    )
+
+    if x_games > 0:
 
         print(
-            f"X win rate during continued training: "
-            f"{(x_wins / additional_games) * 100:.2f}%"
+            "DDQN X vs Random O:"
         )
 
         print(
-            f"O win rate during continued training: "
-            f"{(o_wins / additional_games) * 100:.2f}%"
+            f"  Games  : {x_games}"
         )
 
         print(
-            f"Draw rate during continued training: "
-            f"{(draws / additional_games) * 100:.2f}%"
+            f"  Wins   : {ddqn_x_wins}"
         )
 
-    print()
+        print(
+            f"  Losses : {ddqn_x_losses}"
+        )
+
+        print(
+            f"  Draws  : {ddqn_x_draws}"
+        )
+
+        print(
+            f"  Win rate: "
+            f"{(ddqn_x_wins / x_games) * 100:.2f}%"
+        )
+
+        print(
+            f"  Loss rate: "
+            f"{(ddqn_x_losses / x_games) * 100:.2f}%"
+        )
+
+        print(
+            f"  Draw rate: "
+            f"{(ddqn_x_draws / x_games) * 100:.2f}%"
+        )
+
+        print()
+
+    # ========================================================
+    # DDQN O STATISTICS
+    # ========================================================
+
+    o_games = (
+        ddqn_o_wins
+        + ddqn_o_losses
+        + ddqn_o_draws
+    )
+
+    if o_games > 0:
+
+        print(
+            "Random X vs DDQN O:"
+        )
+
+        print(
+            f"  Games  : {o_games}"
+        )
+
+        print(
+            f"  DDQN O wins   : {ddqn_o_wins}"
+        )
+
+        print(
+            f"  DDQN O losses : {ddqn_o_losses}"
+        )
+
+        print(
+            f"  Draws         : {ddqn_o_draws}"
+        )
+
+        print(
+            f"  DDQN O win rate: "
+            f"{(ddqn_o_wins / o_games) * 100:.2f}%"
+        )
+
+        print(
+            f"  DDQN O loss rate: "
+            f"{(ddqn_o_losses / o_games) * 100:.2f}%"
+        )
+
+        print(
+            f"  Draw rate: "
+            f"{(ddqn_o_draws / o_games) * 100:.2f}%"
+        )
+
+        print()
+
+    # ========================================================
+    # FINAL AGENT INFORMATION
+    # ========================================================
 
     print(
         f"Final epsilon X: "
@@ -1006,29 +1279,9 @@ def continue_training(
     )
 
     print()
-
-    print(
-        "Final X model:"
-    )
-
-    print(
-        model_x_path
-    )
-
-    print()
-
-    print(
-        "Final O model:"
-    )
-
-    print(
-        model_o_path
-    )
-
-    print()
-    print("=" * 60)
+    print("=" * 70)
     print(" MODELS SAVED SUCCESSFULLY")
-    print("=" * 60)
+    print("=" * 70)
 
     return agent_x, agent_o
 
@@ -1040,27 +1293,36 @@ def continue_training(
 if __name__ == "__main__":
 
     print()
-    print("=" * 60)
+    print("=" * 70)
     print(" DDQN ULTIMATE TIC-TAC-TOE")
-    print(" CONTINUED TRAINING")
-    print("=" * 60)
+    print(" TRAINING AGAINST RANDOM")
+    print("=" * 70)
 
-    # --------------------------------------------------------
-    # Continue from the existing 100-game models.
+    # ========================================================
+    # FRESH TRAINING
+    # ========================================================
     #
-    # 100 previous games
-    # +900 new games
-    # =1000 total games
-    # --------------------------------------------------------
+    # If agent_x_final.pth and agent_o_final.pth do not exist,
+    # training automatically starts from scratch.
+    #
+    # If they exist, they are loaded and training continues.
+    #
+    # For a completely fresh training run:
+    #
+    #   1. Back up the old final models.
+    #   2. Remove them from the models folder.
+    #   3. Keep previous_games = 0.
+    #
+    # ========================================================
 
-    agent_x, agent_o = continue_training(
-    total_games=5000,
-    previous_games=0,
-    save_every=500
-)
+    agent_x, agent_o = train_against_random(
+        total_games=5000,
+        previous_games=0,
+        save_every=500
+    )
 
     print()
 
     print(
-        "CONTINUED TRAINING FINISHED."
+        "DDQN VS RANDOM TRAINING FINISHED."
     )

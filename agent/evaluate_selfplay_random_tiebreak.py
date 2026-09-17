@@ -37,10 +37,16 @@ from ddqn_agent import DDQNAgent
 X = 1
 O = -1
 
-NUM_GAMES = 100
+# Number of self-play evaluation games
+NUM_GAMES = 5000
 
-# Actions whose Q-value is within this amount of the
-# maximum Q-value are considered tied.
+# ------------------------------------------------------------
+# Random tie-breaking tolerance
+#
+# Any legal action whose Q-value is within this amount
+# of the best legal Q-value is considered a tied action.
+# ------------------------------------------------------------
+
 TIE_TOLERANCE = 0.10
 
 
@@ -65,18 +71,18 @@ MODEL_O_PATH = os.path.join(
 
 
 # ============================================================
-# LOAD AGENT
+# LOAD TRAINED AGENT
 # ============================================================
 
 def load_agent(model_path):
     """
     Load a trained DDQN agent.
 
-    Epsilon is set to zero because we do NOT want
-    ordinary epsilon-random exploration.
+    Evaluation uses epsilon = 0, so there is no
+    normal epsilon-greedy exploration.
 
-    Randomness is introduced only when multiple legal
-    actions have nearly identical Q-values.
+    Randomness is introduced only through the
+    random tie-breaking mechanism.
     """
 
     agent = DDQNAgent(
@@ -87,7 +93,10 @@ def load_agent(model_path):
 
     agent.load(model_path)
 
+    # --------------------------------------------------------
     # Disable epsilon exploration
+    # --------------------------------------------------------
+
     agent.epsilon = 0.0
 
     return agent
@@ -104,20 +113,38 @@ def select_action_random_tiebreak(
     tolerance=TIE_TOLERANCE
 ):
     """
-    Select action using greedy Q-values
-    with random tie-breaking.
+    Select an action using greedy Q-values with
+    random tie-breaking.
 
-    DEBUG VERSION.
+    The agent first finds the highest Q-value among
+    legal actions.
+
+    Every legal action within 'tolerance' of that
+    maximum is considered tied.
+
+    One of the tied actions is selected randomly.
     """
 
     if not valid_actions:
+
         raise ValueError(
             "valid_actions cannot be empty."
         )
 
+    # --------------------------------------------------------
+    # Convert state to PyTorch tensor
+    # --------------------------------------------------------
+
     state_tensor = torch.FloatTensor(
-        np.asarray(state, dtype=np.float32)
+        np.asarray(
+            state,
+            dtype=np.float32
+        )
     ).unsqueeze(0).to(agent.device)
+
+    # --------------------------------------------------------
+    # Get Q-values
+    # --------------------------------------------------------
 
     with torch.no_grad():
 
@@ -125,7 +152,16 @@ def select_action_random_tiebreak(
             state_tensor
         )
 
-    q_values = q_values.squeeze(0).cpu().numpy()
+    q_values = (
+        q_values
+        .squeeze(0)
+        .cpu()
+        .numpy()
+    )
+
+    # --------------------------------------------------------
+    # Get Q-values only for legal actions
+    # --------------------------------------------------------
 
     legal_q_values = np.array(
         [
@@ -135,9 +171,17 @@ def select_action_random_tiebreak(
         dtype=np.float32
     )
 
+    # --------------------------------------------------------
+    # Find best legal Q-value
+    # --------------------------------------------------------
+
     max_q = np.max(
         legal_q_values
     )
+
+    # --------------------------------------------------------
+    # Find actions within tolerance of best action
+    # --------------------------------------------------------
 
     tied_actions = [
         action
@@ -148,50 +192,16 @@ def select_action_random_tiebreak(
         if q_value >= max_q - tolerance
     ]
 
-    # --------------------------------------------------
-    # DEBUG OUTPUT
-    # --------------------------------------------------
-
-    ranked = sorted(
-        [
-            (a, q_values[a])
-            for a in valid_actions
-        ],
-        key=lambda x: x[1],
-        reverse=True
-    )
-
-    print("\nTop legal actions:")
-
-    for action, q in ranked[:5]:
-
-        board = action // 9
-        cell = action % 9
-
-        print(
-            f"  action={action:2d} "
-            f"(board={board}, cell={cell}) "
-            f"Q={q:.8f}"
-        )
-
-    print(
-        f"Best Q-value: {max_q:.8f}"
-    )
-
-    print(
-        f"Tied actions ({len(tied_actions)}): "
-        f"{tied_actions}"
-    )
+    # --------------------------------------------------------
+    # Randomly select from tied actions
+    # --------------------------------------------------------
 
     chosen_action = random.choice(
         tied_actions
     )
 
-    print(
-        f"Chosen action: {chosen_action}"
-    )
-
     return chosen_action
+
 
 # ============================================================
 # PLAY ONE GAME
@@ -199,14 +209,20 @@ def select_action_random_tiebreak(
 
 def play_one_game(
     agent_x,
-    agent_o,
-    render=False
+    agent_o
 ):
     """
-    Play one complete game between the two trained agents.
+    Play one complete game between the trained
+    DDQN X and trained DDQN O agents.
 
-    Both agents use greedy Q-values with random
-    tie-breaking.
+    Both agents use:
+
+        epsilon = 0
+
+    and:
+
+        greedy Q-values
+        + random tie-breaking
     """
 
     env = UltimateTTTEnv()
@@ -218,19 +234,27 @@ def play_one_game(
 
     last_info = {}
 
+    # ========================================================
+    # GAME LOOP
+    # ========================================================
+
     while not done:
 
         # ----------------------------------------------------
-        # Current player
+        # Get current player
         # ----------------------------------------------------
 
-        current_player = env.get_current_player()
+        current_player = (
+            env.get_current_player()
+        )
 
         # ----------------------------------------------------
-        # Legal actions
+        # Get legal actions
         # ----------------------------------------------------
 
-        valid_actions = env.get_valid_moves()
+        valid_actions = (
+            env.get_valid_moves()
+        )
 
         if not valid_actions:
 
@@ -241,21 +265,19 @@ def play_one_game(
             break
 
         # ----------------------------------------------------
-        # Select appropriate agent
+        # Select agent
         # ----------------------------------------------------
 
         if current_player == X:
 
             agent = agent_x
-            player_name = "X"
 
         else:
 
             agent = agent_o
-            player_name = "O"
 
         # ----------------------------------------------------
-        # Select action using random tie-breaking
+        # Select action
         # ----------------------------------------------------
 
         action = select_action_random_tiebreak(
@@ -277,37 +299,13 @@ def play_one_game(
         move_count += 1
 
         # ----------------------------------------------------
-        # Optional rendering
-        # ----------------------------------------------------
-
-        if render:
-
-            print()
-            print(
-                f"Move {move_count}: "
-                f"Player {player_name} "
-                f"played action {action}"
-            )
-
-            print(
-                f"Q-selected from {len(valid_actions)} "
-                f"legal actions"
-            )
-
-            print(
-                f"Reward: {reward}"
-            )
-
-            env.render()
-
-        # ----------------------------------------------------
         # Update state
         # ----------------------------------------------------
 
         state = next_state
 
     # ========================================================
-    # GAME RESULT
+    # GET GAME RESULT
     # ========================================================
 
     game_info = env.get_game_info()
@@ -319,27 +317,24 @@ def play_one_game(
 
     return {
         "winner": winner,
-        "moves": move_count,
-        "info": game_info
+        "moves": move_count
     }
 
 
 # ============================================================
-# RUN EVALUATION
+# EVALUATE SELF-PLAY
 # ============================================================
 
 def evaluate(
-    num_games=NUM_GAMES,
-    render_first_game=False
+    num_games=NUM_GAMES
 ):
     """
-    Evaluate trained X vs trained O using
-    random tie-breaking.
+    Evaluate trained DDQN X against trained DDQN O.
     """
 
-    # --------------------------------------------------------
-    # Load models
-    # --------------------------------------------------------
+    # ========================================================
+    # LOAD MODELS
+    # ========================================================
 
     print()
     print(
@@ -368,9 +363,9 @@ def evaluate(
         "O model loaded."
     )
 
-    # --------------------------------------------------------
-    # Statistics
-    # --------------------------------------------------------
+    # ========================================================
+    # STATISTICS
+    # ========================================================
 
     x_wins = 0
     o_wins = 0
@@ -385,6 +380,13 @@ def evaluate(
     # PLAY GAMES
     # ========================================================
 
+    print()
+    print(
+        f"Running {num_games} self-play games..."
+    )
+
+    print()
+
     for game_number in range(
         1,
         num_games + 1
@@ -392,11 +394,7 @@ def evaluate(
 
         result = play_one_game(
             agent_x,
-            agent_o,
-            render=(
-                render_first_game
-                and game_number == 1
-            )
+            agent_o
         )
 
         winner = result["winner"]
@@ -451,7 +449,7 @@ def evaluate(
         # ----------------------------------------------------
 
         if (
-            game_number % 10 == 0
+            game_number % 500 == 0
             or game_number == 1
             or game_number == num_games
         ):
@@ -489,7 +487,9 @@ def evaluate(
 
     print()
     print("=" * 60)
-    print(" SELF-PLAY WITH RANDOM TIE-BREAKING")
+    print(
+        " SELF-PLAY WITH RANDOM TIE-BREAKING"
+    )
     print("=" * 60)
 
     print()
@@ -546,7 +546,9 @@ def evaluate(
     print()
 
     print("=" * 60)
-    print(" EVALUATION COMPLETED")
+    print(
+        " EVALUATION COMPLETED"
+    )
     print("=" * 60)
 
     print()
@@ -560,11 +562,16 @@ def evaluate(
     )
 
     print(
-        "Epsilon was set to 0."
+        "Epsilon: 0.0"
     )
 
     print(
-        f"Random tie tolerance: "
+        "Action selection: "
+        "greedy + random tie-breaking"
+    )
+
+    print(
+        f"Tie tolerance: "
         f"{TIE_TOLERANCE}"
     )
 
@@ -579,15 +586,19 @@ if __name__ == "__main__":
 
     print()
     print("=" * 60)
-    print(" DDQN ULTIMATE TIC-TAC-TOE")
-    print(" SELF-PLAY RANDOM TIE-BREAK TEST")
+    print(
+        " DDQN ULTIMATE TIC-TAC-TOE"
+    )
+    print(
+        " SELF-PLAY RANDOM TIE-BREAK TEST"
+    )
     print("=" * 60)
 
     print()
 
-    # --------------------------------------------------------
-    # Check model files
-    # --------------------------------------------------------
+    # ========================================================
+    # CHECK MODEL FILES
+    # ========================================================
 
     if not os.path.exists(MODEL_X_PATH):
 
@@ -613,9 +624,9 @@ if __name__ == "__main__":
 
         sys.exit(1)
 
-    # --------------------------------------------------------
-    # Evaluation configuration
-    # --------------------------------------------------------
+    # ========================================================
+    # DISPLAY SETTINGS
+    # ========================================================
 
     print(
         f"Number of games: {NUM_GAMES}"
@@ -638,18 +649,19 @@ if __name__ == "__main__":
     )
 
     print(
-        "Action selection: greedy + random tie-breaking"
+        "Action selection: "
+        "greedy + random tie-breaking"
     )
 
     print(
-        f"Tie tolerance: {TIE_TOLERANCE}"
+        f"Tie tolerance: "
+        f"{TIE_TOLERANCE}"
     )
 
-    # --------------------------------------------------------
-    # Run evaluation
-    # --------------------------------------------------------
+    # ========================================================
+    # RUN EVALUATION
+    # ========================================================
 
     evaluate(
-    num_games=100,
-    render_first_game=True
-)
+        num_games=NUM_GAMES
+    )
